@@ -1,17 +1,23 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 import psycopg2
 import psycopg2.extras
 import os
 from dotenv import load_dotenv
+import cloudinary
+import cloudinary.uploader
 
 load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
 
-UPLOAD_FOLDER = 'uploads'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+# ── Cloudinary Config ─────────────────────────────────
+cloudinary.config(
+    cloud_name=os.getenv('CLOUDINARY_CLOUD_NAME'),
+    api_key=os.getenv('CLOUDINARY_API_KEY'),
+    api_secret=os.getenv('CLOUDINARY_API_SECRET')
+)
 
 DATABASE_URL = os.getenv('DATABASE_URL')
 
@@ -69,16 +75,20 @@ def add_product():
     category = request.form.get('category', 'Consoles')
     image = request.files.get('image')
 
-    image_filename = None
+    image_url = None
     if image:
-        image_filename = image.filename
-        image.save(os.path.join(UPLOAD_FOLDER, image_filename))
+        upload_result = cloudinary.uploader.upload(
+            image,
+            folder='primal-gaming-hub',
+            resource_type='image'
+        )
+        image_url = upload_result['secure_url']
 
     conn = get_db()
     cur = conn.cursor()
     cur.execute(
         'INSERT INTO products (name, price, description, image, category) VALUES (%s, %s, %s, %s, %s)',
-        (name, price, description, image_filename, category)
+        (name, price, description, image_url, category)
     )
     conn.commit()
     cur.close()
@@ -106,11 +116,15 @@ def update_product(id):
     conn = get_db()
     cur = conn.cursor()
     if image:
-        image_filename = image.filename
-        image.save(os.path.join(UPLOAD_FOLDER, image_filename))
+        upload_result = cloudinary.uploader.upload(
+            image,
+            folder='primal-gaming-hub',
+            resource_type='image'
+        )
+        image_url = upload_result['secure_url']
         cur.execute(
             'UPDATE products SET name=%s, price=%s, description=%s, image=%s, category=%s WHERE id=%s',
-            (name, price, description, image_filename, category, id)
+            (name, price, description, image_url, category, id)
         )
     else:
         cur.execute(
@@ -121,11 +135,6 @@ def update_product(id):
     cur.close()
     conn.close()
     return jsonify({'message': 'Product updated!'})
-
-# ── Images ────────────────────────────────────────────
-@app.route('/uploads/<filename>')
-def uploaded_file(filename):
-    return send_from_directory(UPLOAD_FOLDER, filename)
 
 # ── Admin Auth ────────────────────────────────────────
 @app.route('/api/admin/login', methods=['POST'])
